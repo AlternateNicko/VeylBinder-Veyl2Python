@@ -598,33 +598,17 @@ class GetClass:
     
         self._program.objects["<<external>>"]["variables"][name] = value
 
-if __name__ == "__main__":
-    test = r"""
-class Duck {
-    public func <const>(name, age) {
-        public name = name
-        public age = age
-    }
-    
-    public func quack() {
-        output(f("{name} says quack!"))
-    }
-    
-    public func bio() {
-        output(f("Duck's name is {name} and is {age} years old"))
-    }
-    
-    public func test(a, b) {
-        return a + b
-    }
-}
-    """
-    vey = internal.execute(test)
-    test = GetClass(vey, "Duck")
-    test = test("Adam", 18)
-    test.quack()
-    print(hasattr(test, "name"))
-    test2 = test.age
-    print(test2)
-    test.name = 10
-    print(test.name)
+class IncludeMeta(type):
+    def __call__(cls, func):
+        cls.data[func.__name__] = func
+        return func
+class include(metaclass=IncludeMeta):
+    data = {}
+
+    @classmethod
+    def reset(cls):
+        cls.data.clear()
+
+    @classmethod
+    def remove(cls, name):
+        del cls.data[name]
