@@ -4,7 +4,7 @@ install the following required repository if you don't have already
 ‎[VeylPL](https://github.com/AlternateNicko/Veyl-Programming-Language)
 
 ## Description
-‎Veylbinder is the main official API module for the expiremental programming language, Veyl.
+‎Veylbinder is the main official API module for the expiremental programming language, Veyl, added for 1.0.8 update and above where External API and CLI's are added.
 It connects both Python and Veyl and can integrate Veyl objects (Variables, Functions, Classes) into python programs, and same goes for python objects integrated to Veyl as its built ins.
 ‎veylbinder.py is the main API program, and there is 2 main classes of this module.
 - internal - accesses Veyl internal data, mostly requires a VEY object (which is the name of the class of the Veyl interpreter) that has already been executed, this can access variables, objects, functions, classes, and even integrated custom modules.
