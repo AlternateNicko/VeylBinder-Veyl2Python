@@ -1,3 +1,5 @@
+import sys
+sys.path.append("VeylPL")
 from VeylPL.veyl import VEY # Must have the directory named VeylPL
 from VeylPL import syntax_encloser
 from VeylPL import resolve_external
@@ -366,12 +368,6 @@ class external:
     """
     This class method gives Veyl access to python, or programs depending on the user's inputs
     this includes functions, classes, objects, variables, and even library objects.
-    there is a separate keyword for these calls though inside veyl, any external objects must be process thorugh SSE
-    
-    <external_new> [new_name] [object_name]
-    <external_init> [new_name]
-    <external_call> [object_name] *[arguments]
-    <external_delete> [object_name]
     
     initiate by doing
         - init(veyl_object)
