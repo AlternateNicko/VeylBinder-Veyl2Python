@@ -7,6 +7,10 @@ from pathlib import Path
 import os
 import json
 
+def load_file(file):
+    with open(file, "r") as file:
+        return json.load(file)
+
 class internal:
     """
     This is associated for Veyl Programming Language that I am working on.
@@ -363,6 +367,37 @@ class internal:
     def special_find(cls, vey, line, target, left_delimeter, right_delimeter, ranges=[0, -1]):
         return vey.special_find(line, target, left_delimeter, right_delimeter, ranges)
     
+    # 1.0.1
+    @classmethod
+    def delete(cls, vey, types: str, key = None, optional = None):
+        allowed = ["variables", "functions", "classes", "library", "imports", "objects", "attributes"]
+        if types in allowed:
+            if types == "variables":
+                del vey.variables[key]
+                del vey.global_var[key]
+                del vey.variable_info[key]
+            elif types == "functions":
+                if key in vey.functions.keys():
+                    def vey.functions[key]
+                else:
+                    vey.func_scope[key][optional]
+            elif types == "classes":
+                del vey.classes[key]
+            elif types == "library":
+                del vey.libraries[key]
+                if key in vey.nplibs:
+                    del vey.nplibs[key]
+                    del vey.nplibs_acc[key]
+            elif types == "imports":
+                del vey.library[key]
+                del vey.library_name[key]
+                del vey.name_library[key]
+            elif types == "objects":
+                del vey.objects[key]
+                del vey.class_callers[key]
+            elif types == "attributes":
+                del vey.objects[key]["variables"][optional]
+        return vey
 
 class external:
     """
@@ -519,6 +554,59 @@ class external:
         # objects, libraries) which are not JSON serializable, so only the
         # plain data portion of the config is persisted to a .vcon file
         return {k: v for k, v in config.items() if k != "injections"}
+    # 1.0.1
+    @classmethod
+    def run_state(cls, vey, program):
+        if not isinstance(veyl_object, VEY):
+            raise TypeError("given object is not an instance of VEY")
+        vey.Instructions = vey.build_instructions(peogram)
+        vey.full_instructions = vey.Instructions
+        vey.raw_instructions = program
+        vey.cnt, vey.og_c = 0, 0
+        vey.execute()
+        return vey
+    
+    @classmethod
+    def save_obj(cls, vey, name: str):
+        with open(name, "w") as file:
+            json.dump(name, vey)
+    
+    @classmethod
+    def load_obj(cls, name: str):
+        return load_file(name)
+    
+    @classmethod
+    def verbose(cls, program, isfile=False):
+        code = program if not isfile else load_file(program)
+        cli_config = {
+            "verbose": True,
+            "debug": False,
+            "test": False
+        }
+        vey = VEY(code, cli_config=cli_config)
+        vey.execute()
+    
+    @classmethod
+    def debug(cls, program, isfile=False):
+        code = program if not isfile else load_file(program)
+        cli_config = {
+            "verbose": False,
+            "debug": True,
+            "test": False
+        }
+        vey = VEY(code, cli_config=cli_config)
+        vey.execute()
+    
+    @classmethod
+    def check(cls, program, isfile=False):
+        code = program if not isfile else load_file(program)
+        cli_config = {
+            "verbose": False,
+            "debug": False,
+            "test": True
+        }
+        vey = VEY(code, cli_config=cli_config)
+        vey.execute()
 
 class GetFunction:
     def __init__(self, vey, name):
