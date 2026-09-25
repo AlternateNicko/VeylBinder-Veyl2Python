@@ -1,6 +1,8 @@
 import sys
-sys.path.append("VeylPL")
-from VeylPL.veyl import VEY # Must have the directory named VeylPL
+
+import VeylPL.veylIO
+#from VeylPL.veyl import VEY # Must have the directory named VeylPL
+from VeylPL.veyl import VEY
 from VeylPL import syntax_encloser
 from VeylPL import resolve_external
 from pathlib import Path
@@ -378,9 +380,9 @@ class internal:
                 del vey.variable_info[key]
             elif types == "functions":
                 if key in vey.functions.keys():
-                    def vey.functions[key]
+                    del vey.functions[key]
                 else:
-                    vey.func_scope[key][optional]
+                    del vey.func_scope[key][optional]
             elif types == "classes":
                 del vey.classes[key]
             elif types == "library":
@@ -548,6 +550,7 @@ class external:
     @classmethod
     def return_config(cls):
         return cls._config
+        
     @classmethod
     def _serializable_config(cls, config: dict):
         # injections hold live python objects/callables (functions, classes,
@@ -569,12 +572,29 @@ class external:
     @classmethod
     def save_obj(cls, vey, name: str):
         with open(name, "w") as file:
-            json.dump(name, vey)
+            json.dump(name, {vey: vey})
     
     @classmethod
     def load_obj(cls, name: str):
         return load_file(name)
     
+    @classmethod
+    def restart_run(cls, vey):
+        inst = vey.raw_instructions
+        module = vey.nplibs
+        config = vey.external_config
+        cr = vey.cause_raise
+        io = vey.system_io
+        path = vey.path
+        file_name = vey.file_name
+        file_extension = vey.file_extension
+        program_version = vey.program_version
+        isexternal = vey.is_external
+        cli_config = vey._cli_config
+        del vey
+        vey = VEY(inst, module, cr, path, file_name, file_extension, config, isexternal, io, cli_config)
+        vey.execute()
+        return vey
     @classmethod
     def verbose(cls, program, isfile=False):
         code = program if not isfile else load_file(program)
@@ -700,3 +720,26 @@ class include(metaclass=IncludeMeta):
     @classmethod
     def remove(cls, name):
         del cls.data[name]
+
+if __name__ == "__main__":
+    code = r"""
+import time
+rename time as t
+
+/< Prints from 1 to N
+number = input("enter maximum range > ").as(int)
+
+start = t.time()
+
+for cnt in range(1, number)
+{
+    output(cnt)
+}
+
+end = t.time()
+est = end - start
+
+output(f("Estimated taken time {est}"))
+    """
+    
+    internal.execute(code)
