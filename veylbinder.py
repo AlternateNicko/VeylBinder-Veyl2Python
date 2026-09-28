@@ -42,6 +42,7 @@ class internal:
         - filename(vey)
         - extension(vey)
         - has_variable(vey, name: str)
+        - delete(vey, types: str, key=None, optional=None)
         
         tools, use helper functions used in veyl
         - eval(expression, [globals, [locals]], arbitrary=True)
@@ -69,6 +70,7 @@ class internal:
             if self.program.is_return:
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
+                self.program.is_return = False
                 return self.program.return_val[0]
             
         def next(self, parameters: list = []):
@@ -98,7 +100,7 @@ class internal:
             args = [self.program.convert_arg(arg, True) for arg in parameters]
 
             if name not in self.program.classes[self.name]["methods"].keys():
-                raise NameError("given name is not a defined method for class `{self.name}`")
+                raise NameError(f"given name is not a defined method for class `{self.name}`")
             t = False if self.program.classes[self.name]["methods"][name]["type"] == "pub" else True
             self.program.run_methods(self.name, name, True, self.object_name, args, t)
             if self.program.is_return:
@@ -210,6 +212,7 @@ class internal:
                 "variable": None,
                 "<variable info>": None,
                 "class": None,
+                "<obj>": None
             }
             if len(get_function) > 0:
                 func_data = {}
@@ -227,7 +230,7 @@ class internal:
                      # unusually long condition
                      if "<" + name + ">" in veyl.variables and veyl.variables["<" + name + ">"] == name and veyl.variables[name] in veyl.classes.keys():
                          obj_ref[name] = veyl.class_callers[name]
-                     obj_ref[name]
+                 data["<obj>"] = obj_ref
                  data["variable"] = var_data
                  data["<variable info>"] = var_info
             
@@ -247,7 +250,6 @@ class internal:
         elif name not in veyl_object.functions.keys():
             raise NameError("Given name is not found in available function list")
         veyl_object.cnt = 0
-        function = veyl_object.functions[name]
         arguments = [veyl_object.convert_arg(arg, True) for arg in arguments]
         veyl_object.run_functions(name, arguments, False)
         if veyl_object.is_return:
@@ -335,9 +337,9 @@ class internal:
         if not isinstance(vey, VEY):
             raise TypeError("given object is not an instance of VEY")
         if name not in vey.library:
-            raise NameError("given library name is invalid, no instances of any imported modules named `{name}`")
+            raise NameError(f"given library name is invalid, no instances of any imported modules named `{name}`")
         if name not in vey.nplibs.keys():
-            raise AttributeError("given library name is valid, but has no assigned module (It is most likely because {name} is a built in library name)")
+            raise AttributeError(f"given library name is valid, but has no assigned module (It is most likely because {name} is a built in library name)")
         return vey.nplibs[name]
     
     @classmethod
@@ -375,14 +377,20 @@ class internal:
         if types in allowed:
             if types == "variables":
                 del vey.variables[key]
-                del vey.global_var[key]
-                del vey.variable_info[key]
+                if key in vey.global_var:
+                    del vey.global_var[key]
+                if key in vey.variable_info:
+                    del vey.variable_info[key]
+                if key in vey.public:
+                    del vey.public[key]
+                if key in vey.constants:
+                    del vey.constants[key]
             elif types == "functions":
                 if key in vey.functions.keys():
                     del vey.functions[key]
-                else:
+                if key in vey.func_scope and optional in vey.func_scope[key]:
                     del vey.func_scope[key][optional]
-            elif types == "classes":
+            elif types == "classes" and key in vey.classes:
                 del vey.classes[key]
             elif types == "library":
                 del vey.libraries[key]
@@ -424,6 +432,13 @@ class external:
         - config_save(filename: str, [path=Path.cwd()])
         - config_load(path: str)
         - return_config()
+    
+    and execution methods
+        - run_state(vey, code)
+        - restart_run(vey)
+        - verbose(program, isfile=False)
+        - debug(program, isfile=False)
+        - check(program, isfile=False)
     """
     _original_config = {
         # Veyl objects
@@ -505,7 +520,7 @@ class external:
     def reset_config(cls, name: str):
         if name not in cls._config.keys():
             raise KeyError(f"given name `{name}` is not in the config variable")
-        cls._config[name] = cls._original_config[name]
+        cls._config[name] = copy.deepcopy(cls._original_config[name])
         if cls.vey is not None:
             resolve_external.resolve(cls.vey, cls._config).start()
 
@@ -622,7 +637,7 @@ class external:
 class GetFunction:
     def __init__(self, vey, name):
         if not isinstance(vey, VEY):
-            raise TypeError("given object is not a VEY type object (requires {type(VEY)} type)")
+            raise TypeError(f"given object is not a VEY type object (requires {type(VEY)} type)")
         elif not name in vey.functions.keys():
             raise NameError("given function name is not defined")
         self.name = name
@@ -641,7 +656,7 @@ class GetFunction:
 class GetClass:  
     def __init__(self, vey, name):  
         if not isinstance(vey, VEY):  
-            raise TypeError("given object is not a VEY type object (requires {type(VEY)} type)")  
+            raise TypeError(f"given object is not a VEY type object (requires {type(VEY)} type)")  
         elif not name in vey.classes.keys():  
             raise NameError("given class name is not defined")  
         self._name = name  
@@ -653,7 +668,7 @@ class GetClass:
         args = [self._program.convert_arg(arg, True) for arg in args]  
   
         if name not in self._program.classes[self._name]["methods"].keys():  
-            raise NameError("given name is not a defined method for class `{self._name}`")  
+            raise NameError(f"given name is not a defined method for class `{self._name}`")  
         t = False if self._program.classes[self._name]["methods"][name]["type"] == "pub" else True  
         self._program.run_methods(self._name, name, True, "<<external>>", args, t)  
         if self._program.is_return:  
