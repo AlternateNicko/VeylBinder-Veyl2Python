@@ -1,10 +1,11 @@
 import sys
 
-import VeylPL.veylIO
-#from VeylPL.veyl import VEY # Must have the directory named VeylPL
-from VeylPL.veyl import VEY
-from VeylPL import syntax_encloser
-from VeylPL import resolve_external
+sys.path.append("VeylPL")
+import veylIO
+from veyl import VEY # Must have the directory named VeylPL
+import syntax_encloser
+import resolve_external
+sys.path.pop()
 from pathlib import Path
 import os
 import json
@@ -68,9 +69,11 @@ class internal:
             arguments = [self.program.convert_arg(arg, True) for arg in parameters]
             self.program.run_functions(self.name, arguments, False)
             if self.program.is_return:
+                self.program.is_return = False
+                if len(self.program.return_val) == 0:
+                    return None
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
-                self.program.is_return = False
                 return self.program.return_val[0]
             
         def next(self, parameters: list = []):
@@ -100,11 +103,13 @@ class internal:
             args = [self.program.convert_arg(arg, True) for arg in parameters]
 
             if name not in self.program.classes[self.name]["methods"].keys():
-                raise NameError(f"given name is not a defined method for class `{self.name}`")
+                raise NameError(f"given name is not a defined method for class `{self.program_name}`")
             t = False if self.program.classes[self.name]["methods"][name]["type"] == "pub" else True
             self.program.run_methods(self.name, name, True, self.object_name, args, t)
             if self.program.is_return:
                 self.program.is_return = False
+                if len(self.program.return_val) == 1:  
+                    return None
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
                 return self.program.return_val[0] if len(self.program.return_val) > 0 else None
@@ -156,11 +161,13 @@ class internal:
             c_name = self.program.class_callers[self.object_name]
 
             if method not in self.program.classes[c_name]["methods"].keys():
-                raise NameError(f"given name is not a defined method for class `{self.name}`")
+                raise NameError(f"given name is not a defined method for class `{self.object_name}`")
             t = False if self.program.classes[c_name]["methods"][method]["type"] == "pub" else True
             self.program.run_methods(c_name, method, True, self.object_name, args, t)
             if self.program.is_return:
                 self.program.is_return = False
+                if len(self.program.return_val) == 0:
+                    return None
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
                 return self.program.return_val[0]
@@ -170,25 +177,36 @@ class internal:
         new_list = []
         for arg in delim:
             if isinstance(arg, str):
-                new_list.append("'" + arg + "'")
+                new_list.append("\'" + arg + "\'")
             else:
                 new_list.append(str(arg))
         return new_list
     
     @classmethod
-    def execute(cls, code, api_library: dict={}):
+    def execute(cls, code, api_library=None):
+        if api_library is None:
+            api_library = {}
         if not isinstance(code, str):
             raise TypeError(f"Can not execute `{type(code)}` program to VeylLang (Requires raw strings or raw multi strings)")
         elif not isinstance(api_library, dict):
             raise TypeError(f"Custom Api Libraries can not be injected, requires dict/hash map, not `{type(api_library)}` type")
-        elif api_library != {} and not any(isinstance(key, str) and key is not None for key in api_library.keys()):
+        elif api_library != {} and not all(isinstance(key, str) and key is not None for key in api_library.keys()):
             raise TypeError(f"Custom Api Libraries must require string type keys")
         veyl = VEY(code, special_library=api_library)
         veyl.execute()
         return veyl
     
     @classmethod
-    def adv_execute(cls, programs: list, api_library: dict={}, raise_error: bool=False, get_function: list = [], get_variable: list = [], get_class: list = []):
+    def adv_execute(cls, programs: list, api_library=None, raise_error: bool=False, get_function=None, get_variable=None, get_class=None):
+        if api_library is None:
+            api_library = {}
+        if get_function is None:
+            get_function = []
+        if get_variable is None:
+            get_variable = []
+        if get_class is None:
+            get_class = []
+            
         if not isinstance(api_library, dict):
             raise TypeError(f"Custom Api Libraries can not be injected, requires dict/hash map, not `{type(api_library)}` type")
         elif api_library != {} and not all(isinstance(key, str) for key in api_library):
@@ -217,7 +235,10 @@ class internal:
             if len(get_function) > 0:
                 func_data = {}
                 for name in get_function:
-                    func_data[name] = veyl.functions[name]
+                    if name in veyl.functions:
+                        func_data[name] = veyl.functions[name]
+                    else:
+                        raise NameError(f"Given function name {name} does not exist")
                 data["function"] = func_data
             
             if len(get_variable) > 0:
@@ -225,6 +246,8 @@ class internal:
                  var_info = {}
                  obj_ref = {}
                  for name in get_variable:
+                     if name not in veyl.variables and name not in veyl.variable_info:
+                         raise NameError(f"Variable {name} does not exist")
                      var_data[name] = veyl.variables[name]
                      var_info[name] = veyl.variable_info[name]
                      # unusually long condition
@@ -237,14 +260,19 @@ class internal:
             if len(get_class) > 0:
                 class_data = {}
                 for name in get_class:
+                    if name not in veyl.classes:
+                        raise NameError(f"Given class name {name} does not exist")
                     class_data[name] = veyl.classes[name]
                 data["class"] = class_data
             
-            meta[file.split(".", 1)[0].strip()] = data
+            meta_key = Path(file).stem
+            meta[meta_key] = data
         return meta
     
     @classmethod
-    def call_function(cls, veyl_object, name: str, arguments: list = []):
+    def call_function(cls, veyl_object, name: str, arguments=None):
+        if arguments is None:
+            arguments = []
         if not isinstance(veyl_object, VEY):
             raise TypeError("given object is not an instance of VEY")
         elif name not in veyl_object.functions.keys():
@@ -254,27 +282,33 @@ class internal:
         veyl_object.run_functions(name, arguments, False)
         if veyl_object.is_return:
             veyl_object.is_return = False
+            if len(veyl_object.return_val) == 0:
+                return None
             if len(veyl_object.return_val) > 1:
                 return tuple([a for a in veyl_object.return_val])
             return veyl_object.return_val[0]
     
     @classmethod
-    def init_class(cls, vey, obj_name: str, name: str, arguments: list = []):
+    def init_class(cls, vey, obj_name: str, name: str, arguments=None):
+        if arguments is None:
+            arguments = []
         if not isinstance(vey, VEY):
             raise TypeError("given object is not an instance of VEY")
         elif name not in vey.classes.keys():
             raise NameError(f"given name {name} is not a defined class")
-        arguments = str(tuple(arguments))[:-2] + ")" if len(arguments) > 0 else "()"
+        arguments = str(tuple(arguments))[:-1] + ")" if len(arguments) > 0 else "()"
         code = f"{obj_name} = {name}{arguments}"
         vey.assign_variable(code, isexternal=True)
         return vey
     
     @classmethod
-    def call_method(cls, vey, obj_name: str, name: str, arguments: list = [], return_val: bool=False):
+    def call_method(cls, vey, obj_name: str, name: str, arguments=None, return_val: bool=False):
+        if arguments is None:
+            arguments = []
         if not isinstance(vey, VEY):
             raise TypeError("given object is not an instance of VEY")
         vey.cnt = 0
-        arguments = str(tuple(arguments))[:-2] + ")" if len(arguments) > 0 else "()"
+        arguments = str(tuple(arguments))[:-1] + ")" if len(arguments) > 0 else "()"
         
         if return_val:
             code = f"<<external>> = call {obj_name}.{name}{arguments}"
@@ -287,7 +321,9 @@ class internal:
             vey.execute_functions(code)
     
     @classmethod
-    def call_library(cls, vey, library_name: str, name: str, arguments: list = [], return_val: bool=False):
+    def call_library(cls, vey, library_name: str, name: str, arguments=None, return_val: bool=False):
+        if arguments is None:
+            arguments = []
         if not isinstance(vey, VEY):
             raise TypeError("given object is not an instance of VEY")
         elif library_name not in vey.libraries:
@@ -296,8 +332,8 @@ class internal:
             raise NameError("module has not been imported yet (write an import code in the first in the program)")
         vey.cnt = 0
         arguments = cls._convert_arg(arguments)
-        arguments = str(tuple(arguments))[:-2] + ")" if len(arguments) > 0 else "()"
-        
+        arguments = str(tuple(arguments))[:-1] + ")" if len(arguments) > 0 else "()"
+
         if return_val:
             code = f"<<external>> = {library_name}.{name}{arguments}"
             vey.assign_variable(code, isexternal=True)
@@ -376,8 +412,10 @@ class internal:
         allowed = ["variables", "functions", "classes", "library", "imports", "objects", "attributes"]
         if types in allowed:
             if types == "variables":
+                if key not in vey.variables:
+                    raise NameError(f"Name {key} is not a defined variable")
                 del vey.variables[key]
-                if key in vey.global_var:
+                if key in vey.global_var:{
                     del vey.global_var[key]
                 if key in vey.variable_info:
                     del vey.variable_info[key]
@@ -393,20 +431,31 @@ class internal:
             elif types == "classes" and key in vey.classes:
                 del vey.classes[key]
             elif types == "library":
+                if key not in vey.libraries:
+                    raise NameError(f"Name {key} is not a defined library")
                 del vey.libraries[key]
                 if key in vey.nplibs:
                     del vey.nplibs[key]
                     del vey.nplibs_acc[key]
             elif types == "imports":
+                if key not in vey.library:
+                    raise NameError(f"Name {key} is not a defined imported library")
                 del vey.library[key]
                 del vey.library_name[key]
                 del vey.name_library[key]
             elif types == "objects":
+                if key not in vey.objects:
+                    raise NameError(f"Name {key} is not a defined instantiated object")
                 del vey.objects[key]
                 del vey.class_callers[key]
             elif types == "attributes":
+                if key not in vey.objects:
+                    raise NameError(f"Name {key} is not a defined instantiated object")
+                elif optional not in list(vey.objects[key]["variables"].keys()):
+                    raise NameError(f"Name {optional} is not a defined attribute for object {key}")
                 del vey.objects[key]["variables"][optional]
-        return vey
+            return vey
+        raise TypeError(f"Given type {types} is invalid, pick from a list of available types\n{allowed}")
 
 class external:
     """
@@ -451,7 +500,7 @@ class external:
         # System
         "filename": "-temp_veyl_executor-",
         "fileextension": ".vey",
-        "path": Path.cwd(),
+        "path": str(Path.cwd()),
         
         # External injections
         "external": {}, # reserve keyword
@@ -476,20 +525,23 @@ class external:
     @classmethod
     def bind_function(cls, name: str, function_object: object):
         cls._config["injections"]["functions"][name] = function_object
-        if cls.vey is not None:
-            resolve_external.resolve(cls.vey, cls._config).start()
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
+        resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
-    def bind_classes(cls, name: str, class_object: object):
+    def bind_class(cls, name: str, class_object: object):
         cls._config["injections"]["classes"][name] = class_object
-        if cls.vey is not None:
-            resolve_external.resolve(cls.vey, cls._config).start()
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
+        resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
     def bind_object(cls, name: str, object_name: object):
         cls._config["injections"]["object"][name] = object_name
-        if cls.vey is not None:
-            resolve_external.resolve(cls.vey, cls._config).start()
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
+        resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
     def bind_library(cls, name: str, library: object):
@@ -499,12 +551,17 @@ class external:
 
     @classmethod
     def assign_variable(cls, name: str, value):
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
         cls.vey.assign_variable(f"{name} = {str(value)}", isexternal=True)
 
     @classmethod
     def inject_library(cls, name: str, library: object):
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
         cls.vey.nplibs[name] = library
-        cls.vey.libraries.append(name)
+        if name not in cls.vey.libraries:
+            cls.vey.libraries.append(name)
         cls.vey.nplibs_acc[name] = False
 
     #configs
@@ -517,7 +574,7 @@ class external:
             resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
-    def reset_config(cls, name: str):
+    def remove_config(cls, name: str):
         if name not in cls._config.keys():
             raise KeyError(f"given name `{name}` is not in the config variable")
         cls._config[name] = copy.deepcopy(cls._original_config[name])
@@ -533,8 +590,9 @@ class external:
     @classmethod
     def config_default(cls):
         cls._config = copy.deepcopy(cls._original_config)
-        if cls.vey is not None:
-            resolve_external.resolve(cls.vey, cls._config).start()
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
+        resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
     def config_save(cls, file_name: str, path=None):
@@ -556,9 +614,11 @@ class external:
             raise FileNotFoundError("given file path does not exist")
         with open(path, "r") as file:
             loaded = json.load(file)
+        loaded["path"] = Path(loaded["path"])
         cls._config.update(loaded)
-        if cls.vey is not None:
-            resolve_external.resolve(cls.vey, cls._config).start()
+        if cls.vey is None:
+            raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
+        resolve_external.resolve(cls.vey, cls._config).start()
         return loaded
     
     @classmethod
@@ -598,6 +658,7 @@ class external:
         cli_config = vey._cli_config
         del vey
         vey = VEY(inst, module, cr, path, file_name, file_extension, config, isexternal, io, cli_config)
+        vey.program_version = program_version
         vey.execute()
         return vey
         
@@ -649,6 +710,8 @@ class GetFunction:
         self.vey.run_functions(self.name, arguments, False)
         if self.vey.is_return:
             self.vey.is_return = False
+            if len(self._program.return_val) == 0:
+                return None
             if len(self.vey.return_val) > 1:
                 return tuple([a for a in self.vey.return_val])
             return self.vey.return_val[0]
@@ -672,7 +735,9 @@ class GetClass:
         t = False if self._program.classes[self._name]["methods"][name]["type"] == "pub" else True  
         self._program.run_methods(self._name, name, True, "<<external>>", args, t)  
         if self._program.is_return:  
-            self._program.is_return = False  
+            self._program.is_return = False
+            if len(self._program.return_val) == 0:
+                return None
             if len(self._program.return_val) > 1:  
                 return tuple([a for a in self._program.return_val])  
             return self._program.return_val[0]  
@@ -711,6 +776,7 @@ class GetClass:
             )
     
         self._program.objects["<<external>>"]["variables"][name] = value
+        self._program.process_vars()
 
 class IncludeMeta(type):
     def __call__(cls, func):
@@ -726,3 +792,6 @@ class include(metaclass=IncludeMeta):
     @classmethod
     def remove(cls, name):
         del cls.data[name]
+
+class VeylError(Exception):
+    pass
