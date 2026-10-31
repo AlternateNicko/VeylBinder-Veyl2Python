@@ -95,20 +95,23 @@ class internal:
             code = f"<<external>> = {self.name}{args}"
             self.program.assign_variable(code, isexternal=True)
             if self.program.is_return:
+                self.program.is_return = False
+                if len(self.program.return_val) == 0:  
+                    return None
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
-                return self.program.return_val[0]
+                return self.program.return_val[0] if len(self.program.return_val) > 0 else None
         
         def call(self, name: str, parameters: list = []):
             args = [self.program.convert_arg(arg, True) for arg in parameters]
 
             if name not in self.program.classes[self.name]["methods"].keys():
-                raise NameError(f"given name is not a defined method for class `{self.program_name}`")
+                raise NameError(f"given name is not a defined method for class `{self.name}`")
             t = False if self.program.classes[self.name]["methods"][name]["type"] == "pub" else True
             self.program.run_methods(self.name, name, True, self.object_name, args, t)
             if self.program.is_return:
                 self.program.is_return = False
-                if len(self.program.return_val) == 1:  
+                if len(self.program.return_val) == 0:  
                     return None
                 if len(self.program.return_val) > 1:
                     return tuple([a for a in self.program.return_val])
@@ -265,7 +268,14 @@ class internal:
                     class_data[name] = veyl.classes[name]
                 data["class"] = class_data
             
-            meta_key = Path(file).stem
+            meta_key = str(Path(file).stem)
+            if meta_key in meta:
+                cnt = 1
+                while True:
+                    newmt = meta_key + str(cnt)
+                    if newmt not in meta:
+                        meta_key = newmt
+                        break
             meta[meta_key] = data
         return meta
     
@@ -415,7 +425,7 @@ class internal:
                 if key not in vey.variables:
                     raise NameError(f"Name {key} is not a defined variable")
                 del vey.variables[key]
-                if key in vey.global_var:{
+                if key in vey.global_var:
                     del vey.global_var[key]
                 if key in vey.variable_info:
                     del vey.variable_info[key]
@@ -530,7 +540,7 @@ class external:
         resolve_external.resolve(cls.vey, cls._config).start()
 
     @classmethod
-    def bind_class(cls, name: str, class_object: object):
+    def bind_class (cls, name: str, class_object: object):
         cls._config["injections"]["classes"][name] = class_object
         if cls.vey is None:
             raise VeylError(f"Tried to parse into Veyl's interpreter, but no Veyl class object was found.")
@@ -710,73 +720,157 @@ class GetFunction:
         self.vey.run_functions(self.name, arguments, False)
         if self.vey.is_return:
             self.vey.is_return = False
-            if len(self._program.return_val) == 0:
+            if len(self.vey.return_val) == 0:
                 return None
             if len(self.vey.return_val) > 1:
                 return tuple([a for a in self.vey.return_val])
             return self.vey.return_val[0]
         
-class GetClass:  
-    def __init__(self, vey, name):  
-        if not isinstance(vey, VEY):  
-            raise TypeError(f"given object is not a VEY type object (requires {type(VEY)} type)")  
-        elif not name in vey.classes.keys():  
-            raise NameError("given class name is not defined")  
-        self._name = name  
-        self._program = vey  
-        self._cls_obj = vey.classes[name]
-      
-    def _call(self, name: str, *args):  
-          
-        args = [self._program.convert_arg(arg, True) for arg in args]  
-  
-        if name not in self._program.classes[self._name]["methods"].keys():  
-            raise NameError(f"given name is not a defined method for class `{self._name}`")  
-        t = False if self._program.classes[self._name]["methods"][name]["type"] == "pub" else True  
-        self._program.run_methods(self._name, name, True, "<<external>>", args, t)  
-        if self._program.is_return:  
-            self._program.is_return = False
-            if len(self._program.return_val) == 0:
-                return None
-            if len(self._program.return_val) > 1:  
-                return tuple([a for a in self._program.return_val])  
-            return self._program.return_val[0]  
-              
-    def __getattr__(self, name: str, *args):  
-        internal_attr = {
-            "_name": self._name
-          , "_program": self._program
-          , "_cls_obj": self._cls_obj
+class GetClass:
+    """Python-side proxy for a Veyl class or one of its instances.
+
+    Before calling the wrapper, attributes and methods are resolved against
+    the class itself. This allows class-level calls such as ``Add.add()``
+    without constructing an instance. Calling the wrapper creates an instance;
+    afterwards, methods and attributes are resolved against that instance.
+    """
+
+    _INTERNAL_NAMES = {
+        "_name", "_program", "_cls_obj", "_object_name", "_initialized"
+    }
+
+    def __init__(self, vey, name):
+        if not isinstance(vey, VEY):
+            raise TypeError("given object is not a VEY type object")
+        if name not in vey.classes:
+            raise NameError(f"given class name `{name}` is not defined")
+
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_program", vey)
+        object.__setattr__(self, "_cls_obj", vey.classes[name])
+        object_name = f"__veylbinder_instance_{id(self):x}"
+        while object_name in vey.objects or object_name in vey.variables:
+            object_name += "_"
+        object.__setattr__(self, "_object_name", object_name)
+        object.__setattr__(self, "_initialized", False)
+
+    def _require_instance(self):
+        if not self._initialized or self._object_name not in self._program.objects:
+            raise RuntimeError(
+                f"Veyl class `{self._name}` has not been initialized; "
+                "call the class wrapper to create an instance"
+            )
+        return self._program.objects[self._object_name]
+
+    @staticmethod
+    def _extract_return(vey):
+        if not vey.is_return:
+            return None
+        value = vey.return_val
+        vey.is_return = False
+        if isinstance(value, (list, tuple)):
+            if len(value) > 1:
+                return tuple(value)
+            if len(value) == 1:
+                return value[0]
+            return None
+        return value
+
+    def _call(self, name: str, *args):
+        methods = self._program.classes[self._name]["methods"]
+        if name not in methods:
+            raise AttributeError(f"Veyl class `{self._name}` has no method `{name}`")
+
+        method_type = methods[name].get("type", "pub")
+        if self._initialized and self._object_name in self._program.objects:
+            # Instance method: execute with this object's own variable scope.
+            self._program.run_methods(
+                self._name, name, True, self._object_name, list(args),
+                method_type != "pub",
+            )
+        else:
+            # Class-level method: execute using the class variable scope.
+            # run_methods(object=False, isstatic=False) loads class variables,
+            # so `a` and `b` in Add.add() resolve without an instance.
+            self._program.run_methods(
+                self._name, name, False, None, list(args),
+                method_type != "pub",
+                isstatic=bool(methods[name].get("isstatic", False)),
+            )
+        return self._extract_return(self._program)
+
+    def __call__(self, *args):
+        """Create an instance; this is optional for class-level methods."""
+        vey = self._program
+        object_name = self._object_name
+
+        if object_name in vey.objects:
+            del vey.objects[object_name]
+        vey.class_callers.pop(object_name, None)
+        vey.variables.pop(object_name, None)
+        vey.variables.pop(f"<{object_name}>", None)
+
+        class_data = vey.classes[self._name]
+        constructor_name = syntax_encloser.MethodSSE.name_for("constructor")
+        if args and constructor_name not in class_data["methods"]:
+            raise TypeError(
+                f"Veyl class `{self._name}` has no constructor but arguments were supplied"
+            )
+
+        vey.objects[object_name] = {
+            "variables": copy.deepcopy(class_data["variables"]),
+            "instance": self._name,
+            "inherits": copy.deepcopy(class_data.get("inherits", [])),
         }
-        if name in internal_attr.keys():
-            return internal_attr[name]
-        if name in self._program.objects["<<external>>"]["variables"]["<dict>"]:
-            return self._program.objects["<<external>>"]["variables"][name]
-        return lambda *args: self._call(name, *args)  
-      
-    def __call__(self, *args):  
-        args = str(tuple(args)) if len(args) > 0 else "()"  
-        code = f"<<external>> = {self._name}{args}"  
-        self._program.assign_variable(code, isexternal=True)  
-        return self._program.variables["<<external>>"]
-      
-    def __hasattr__(self, name):  
-        if name in self._program.objects[self._name]["variables"]["<attr>"]:  
-            return True  
-        return False
-    
+        vey.class_callers[object_name] = self._name
+        vey.variables[object_name] = self._name
+        vey.variables[f"<{object_name}>"] = object_name
+        object.__setattr__(self, "_initialized", True)
+
+        if constructor_name in class_data["methods"]:
+            self._call(constructor_name, *args)
+        return self
+
+    def __getattr__(self, name: str):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+
+        if self._initialized and self._object_name in self._program.objects:
+            variables = self._program.objects[self._object_name]["variables"]
+        else:
+            # An uninitialized GetClass is a class proxy, not an invalid object.
+            variables = self._program.classes[self._name]["variables"]
+
+        if name in variables and name not in ("<dict>", "<attr>"):
+            return variables[name]
+
+        if name in self._program.classes[self._name]["methods"]:
+            return lambda *args: self._call(name, *args)
+
+        raise AttributeError(f"Veyl class `{self._name}` has no attribute `{name}`")
+
     def __setattr__(self, name, value):
-        if name in ("_program", "_name", "_cls_obj"):
+        if name in self._INTERNAL_NAMES:
             object.__setattr__(self, name, value)
             return
-    
-        if name not in self._program.objects["<<external>>"]["variables"]:
+
+        if self._initialized and self._object_name in self._program.objects:
+            variables = self._program.objects[self._object_name]["variables"]
+        else:
+            variables = self._program.classes[self._name]["variables"]
+
+        declared = variables.get("<attr>", [])
+        if (
+            name not in declared
+            or name in ("<dict>", "<attr>")
+            or name in self._program.classes[self._name]["methods"]
+        ):
             raise AttributeError(
-                f"`{name}` is not a valid attribute"
+                f"`{name}` is not a declared attribute of `{self._name}`"
             )
-    
-        self._program.objects["<<external>>"]["variables"][name] = value
-        self._program.process_vars()
+
+        variables[name] = value
+        variables.setdefault("<dict>", {})[name] = value
 
 class IncludeMeta(type):
     def __call__(cls, func):
@@ -791,6 +885,8 @@ class include(metaclass=IncludeMeta):
 
     @classmethod
     def remove(cls, name):
+        if name not in cls.data:
+            raise NameError(f"Given name {name} is not a defined saved function")
         del cls.data[name]
 
 class VeylError(Exception):
